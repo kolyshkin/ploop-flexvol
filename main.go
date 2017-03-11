@@ -1,13 +1,13 @@
 package main
 
 import (
-	"github.com/jaxxstorm/flexvolume"
-	//"fmt"
-	"github.com/dustin/go-humanize"
-	"github.com/kolyshkin/goploop-cli"
-	"github.com/urfave/cli"
 	"os"
 	"syscall"
+
+	"github.com/avagin/ploop-flexvol/volume"
+	"github.com/jaxxstorm/flexvolume"
+	"github.com/kolyshkin/goploop-cli"
+	"github.com/urfave/cli"
 )
 
 func main() {
@@ -57,30 +57,13 @@ func (p Ploop) Attach(options map[string]string) flexvolume.Response {
 		}
 	}
 
-	// get a human readable size from the map
-	bytes, _ := humanize.ParseBytes(options["size"])
-
-	// ploop driver takes kilobytes, so convert it
-	volume_size := bytes / 1024
-
-	// make the base directory where the volume will go
-	err := os.MkdirAll(options["volumePath"]+"/"+options["volumeId"], 0700)
-	if err != nil {
+	if err := volume.Create(options); err != nil {
 		return flexvolume.Response{
 			Status:  flexvolume.StatusFailure,
 			Message: err.Error(),
 		}
 	}
 
-	// Create the ploop volume
-	cp := ploop.CreateParam{Size: volume_size, File: options["volumePath"] + "/" + options["volumeId"] + "/" + options["volumeId"]} // use correct path
-	// if there's an issue, return a failure
-	if err := ploop.Create(&cp); err != nil {
-		return flexvolume.Response{
-			Status:  flexvolume.StatusFailure,
-			Message: err.Error(),
-		}
-	}
 	return flexvolume.Response{
 		Status:  flexvolume.StatusSuccess,
 		Message: "Successfully attached the ploop volume",
@@ -129,7 +112,12 @@ func (p Ploop) Mount(target, device string, options map[string]string) flexvolum
 	if m, _ := volume.IsMounted(); !m {
 		// If it's mounted, let's mount it!
 
-		mp := ploop.MountParam{Target: target}
+		readonly := false
+		if options["kubernetes.io/readwrite"] == "ro" {
+			readonly = true
+		}
+
+		mp := ploop.MountParam{Target: target, Readonly: readonly}
 
 		dev, err := volume.Mount(&mp)
 		if err != nil {
